@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QR &amp; Barcode</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2f5bea">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#f4f5f1;--fg:#16201c;--mu:#66726c;--card:#fff;--ln:#d9ddd6;--ac:#2f5bea;--on:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121715;--fg:#e8ece9;--mu:#8e9a94;--card:#1b221f;--ln:#2d3732;--ac:#7c9bff;--on:#0c1220}}
+:root[data-theme="dark"]{--bg:#121715;--fg:#e8ece9;--mu:#8e9a94;--card:#1b221f;--ln:#2d3732;--ac:#7c9bff;--on:#0c1220}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
+main{flex:1;overflow:auto;padding:16px;max-width:560px;width:100%;margin:0 auto}
+nav{display:flex;border-top:1px solid var(--ln);background:var(--card)}
+nav button{flex:1;padding:14px 4px;background:none;border:0;color:var(--mu);font:inherit;font-weight:600}
+nav button[aria-selected=true]{color:var(--ac);box-shadow:inset 0 3px var(--ac)}
+button,select,input{font:inherit;color:inherit}
+.btn{padding:10px 16px;border-radius:10px;border:1px solid var(--ln);background:var(--card);font-weight:600}
+.btn.p{background:var(--ac);color:var(--on);border-color:var(--ac)}
+input,select{width:100%;padding:11px;border:1px solid var(--ln);border-radius:10px;background:var(--card);margin:4px 0 10px}
+label{font-size:14px;color:var(--mu)}
+.cam{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:3/4}
+video{width:100%;height:100%;object-fit:cover}
+.frame{position:absolute;inset:18% 15%;border:3px solid #fff;border-radius:14px;opacity:.85;pointer-events:none}
+.tools{position:absolute;top:8px;left:8px;right:8px;display:flex;justify-content:space-between}
+.tools .btn{background:#000a;color:#fff;border-color:#fff4}
+.msg{color:var(--mu);margin:10px 0}
+.res{background:var(--card);border:1px solid var(--ln);border-radius:14px;padding:14px;margin-top:12px}
+.res pre{white-space:pre-wrap;word-break:break-word;margin:6px 0 12px;font:inherit}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.h{display:flex;justify-content:space-between;align-items:center}
+.item{background:var(--card);border:1px solid var(--ln);border-radius:12px;padding:12px;margin-bottom:8px}
+.item small{color:var(--mu)}.item div{word-break:break-all}
+#qr{display:block;margin:12px auto;max-width:100%;image-rendering:pixelated;background:#fff;border-radius:8px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<section id="v-scan">
+  <div class="cam"><video id="vid" playsinline muted></video><div class="frame"></div>
+    <div class="tools"><button class="btn" id="gal">Image</button><button class="btn" id="fl" hidden>Flashlight</button></div></div>
+  <input type="file" id="file" accept="image/*" hidden>
+  <p class="msg" id="smsg">Point the camera at a QR code or barcode.</p>
+  <div class="res" id="res" hidden>
+    <small id="rtype"></small><pre id="rtext"></pre>
+    <div class="row"><button class="btn" id="cp">Copy</button><button class="btn" id="sh">Share</button><a class="btn" id="op" target="_blank" rel="noopener" hidden style="text-decoration:none">Open</a><button class="btn p" id="again">Scan again</button></div>
+  </div>
+</section>
+<section id="v-gen" hidden>
+  <label for="gt">Type</label>
+  <select id="gt"><option>Text</option><option>URL</option><option>WiFi</option><option>Phone</option><option>Email</option><option>SMS</option></select>
+  <div id="g1"><label for="gi" id="gl">Text</label><input id="gi" autocomplete="off"></div>
+  <div id="g2" hidden><label for="ws">Network name (SSID)</label><input id="ws" autocomplete="off"><label for="wp">Password</label><input id="wp" autocomplete="off"><label for="wt">Security</label><select id="wt"><option>WPA</option><option>WEP</option><option value="nopass">None</option></select></div>
+  <button class="btn p" id="mk">Create QR code</button>
+  <p class="msg" id="gmsg"></p>
+  <canvas id="qr" hidden></canvas>
+  <div class="row" id="gact" hidden><button class="btn" id="dl">Save as PNG</button></div>
+</section>
+<section id="v-his" hidden>
+  <div class="h"><h2 style="margin:0">History</h2><button class="btn" id="clr">Clear all</button></div>
+  <div id="hl" style="margin-top:12px"></div>
+</section>
+</main>
+<nav role="tablist"><button role="tab" data-v="scan" aria-selected="true">Scan</button><button role="tab" data-v="gen" aria-selected="false">Create</button><button role="tab" data-v="his" aria-selected="false">History</button></nav>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+
+/* ---------- QR encoder (own implementation: byte mode, ECC level M, versions 1-10) ---------- */
+const EXP=new Uint8Array(512),LOG=new Uint8Array(256);
+(()=>{let x=1;for(let i=0;i<255;i++){EXP[i]=x;LOG[x]=i;x<<=1;if(x&256)x^=0x11d}for(let i=255;i<512;i++)EXP[i]=EXP[i-255]})();
+const gmul=(a,b)=>a&&b?EXP[LOG[a]+LOG[b]]:0;
+function rsEnc(data,n){let g=[1];for(let i=0;i<n;i++){const h=new Array(g.length+1).fill(0);g.forEach((c,j)=>{h[j]^=c;h[j+1]^=gmul(c,EXP[i])});g=h}
+  const r=new Array(n).fill(0);for(const d of data){const f=d^r.shift();r.push(0);for(let i=0;i<n;i++)r[i]^=gmul(g[i+1],f)}return r}
+const TB=[0,[10,1,16,0,0],[16,1,28,0,0],[26,1,44,0,0],[18,2,32,0,0],[24,2,43,0,0],[16,4,27,0,0],[18,4,31,0,0],[22,2,38,2,39],[22,3,36,2,37],[26,4,43,1,44]];
+const AL=[0,[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50]];
+function makeQR(text){
+  const bytes=[...new TextEncoder().encode(text)];let v=1;
+  for(;v<=10;v++){const t=TB[v];if(4+(v<10?8:16)+8*bytes.length<=(t[1]*t[2]+t[3]*t[4])*8)break}
+  if(v>10)return null;
+  const [e,n1,d1,n2,d2]=TB[v],cap=n1*d1+n2*d2,bits=[];
+  const put=(x,l)=>{for(let i=l-1;i>=0;i--)bits.push((x>>i)&1)};
+  put(4,4);put(bytes.length,v<10?8:16);bytes.forEach(b=>put(b,8));put(0,Math.min(4,cap*8-bits.length));while(bits.length%8)bits.push(0);
+  const cw=[];for(let i=0;i<bits.length;i+=8)cw.push(parseInt(bits.slice(i,i+8).join(""),2));
+  for(let p=0;cw.length<cap;p^=1)cw.push(p?0x11:0xEC);
+  const bl=[];let o=0;for(let i=0;i<n1+n2;i++){const l=i<n1?d1:d2,d=cw.slice(o,o+l);o+=l;bl.push({d,e:rsEnc(d,e)})}
+  const out=[];for(let i=0;i<Math.max(d1,d2);i++)bl.forEach(b=>{if(i<b.d.length)out.push(b.d[i])});
+  for(let i=0;i<e;i++)bl.forEach(b=>out.push(b.e[i]));
+  const N=17+4*v,g=Array.from({length:N},()=>new Array(N).fill(false)),fn=Array.from({length:N},()=>new Array(N).fill(false));
+  const set=(x,y,b)=>{g[y][x]=b;fn[y][x]=true};
+  for(const [cx,cy] of [[3,3],[N-4,3],[3,N-4]])for(let dy=-4;dy<=4;dy++)for(let dx=-4;dx<=4;dx++){const x=cx+dx,y=cy+dy;if(x>=0&&y>=0&&x<N&&y<N){const d=Math.max(Math.abs(dx),Math.abs(dy));set(x,y,d!==2&&d!==4)}}
+  const a=AL[v];for(const cy of a)for(const cx of a){if(fn[cy][cx])continue;for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++)set(cx+dx,cy+dy,Math.max(Math.abs(dx),Math.abs(dy))!==1)}
+  for(let i=8;i<N-8;i++){if(!fn[6][i])set(i,6,i%2===0);if(!fn[i][6])set(6,i,i%2===0)}
+  set(8,N-8,true);
+  const pos=[];for(let i=0;i<15;i++){const p1=i<6?[8,i]:i===6?[8,7]:i===7?[8,8]:i===8?[7,8]:[14-i,8];const p2=i<8?[N-1-i,8]:[8,N-15+i];pos.push([p1,p2]);fn[p1[1]][p1[0]]=fn[p2[1]][p2[0]]=true}
+  if(v>=7){let r=v<<12;for(let i=17;i>=12;i--)if((r>>i)&1)r^=0x1F25<<(i-12);const vb=(v<<12)|r;for(let i=0;i<18;i++){const b=(vb>>i)&1,x=N-11+i%3,y=Math.floor(i/3);set(x,y,!!b);set(y,x,!!b)}}
+  const st=[];out.forEach(b=>{for(let i=7;i>=0;i--)st.push((b>>i)&1)});
+  let k=0;for(let r=N-1;r>=1;r-=2){if(r===6)r=5;for(let t=0;t<N;t++)for(let j=0;j<2;j++){const x=r-j,y=((r+1)&2)===0?N-1-t:t;if(!fn[y][x])g[y][x]=k<st.length?st[k++]===1:false}}
+  const M=[(x,y)=>(x+y)%2===0,(x,y)=>y%2===0,(x,y)=>x%3===0,(x,y)=>(x+y)%3===0,(x,y)=>(Math.floor(y/2)+Math.floor(x/3))%2===0,(x,y)=>(x*y)%2+(x*y)%3===0,(x,y)=>((x*y)%2+(x*y)%3)%2===0,(x,y)=>((x+y)%2+(x*y)%3)%2===0];
+  let best=null,bp=1e9;
+  for(let m=0;m<8;m++){
+    const h=g.map(r=>r.slice());for(let y=0;y<N;y++)for(let x=0;x<N;x++)if(!fn[y][x]&&M[m](x,y))h[y][x]=!h[y][x];
+    let f=m<<10,r=m<<10;for(let i=14;i>=10;i--)if((r>>i)&1)r^=0x537<<(i-10);f=((m<<10)|r)^0x5412;
+    pos.forEach(([p1,p2],i)=>{const b=((f>>i)&1)===1;h[p1[1]][p1[0]]=b;h[p2[1]][p2[0]]=b});
+    let pen=0;for(let y=0;y<N;y++){let rr=1,cc=1;for(let x=1;x<N;x++){rr=h[y][x]===h[y][x-1]?rr+1:1;cc=h[x][y]===h[x-1][y]?cc+1:1;if(rr===5)pen+=3;else if(rr>5)pen++;if(cc===5)pen+=3;else if(cc>5)pen++}}
+    if(pen<bp){bp=pen;best=h}
+  }
+  return best;
+}
+function drawQR(canvas,text){
+  const m=makeQR(text);if(!m)return false;const q=4,s=Math.max(4,Math.floor(512/(m.length+2*q))),n=(m.length+2*q)*s;
+  canvas.width=canvas.height=n;const c=canvas.getContext("2d");c.fillStyle="#fff";c.fillRect(0,0,n,n);c.fillStyle="#000";
+  m.forEach((r,y)=>r.forEach((d,x)=>{if(d)c.fillRect((x+q)*s,(y+q)*s,s,s)}));return true;
+}
+
+/* ---------- navigation ---------- */
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.setAttribute("aria-selected",x===b));
+  ["scan","gen","his"].forEach(v=>$("v-"+v).hidden=v!==b.dataset.v);
+  if(b.dataset.v==="scan")startCam();else stopCam();
+  if(b.dataset.v==="his")renderHist();
+});
+
+/* ---------- history ---------- */
+const HK="qr-history";
+const loadH=()=>{try{return JSON.parse(localStorage.getItem(HK)||"[]")}catch(e){return[]}};
+const saveH=a=>{try{localStorage.setItem(HK,JSON.stringify(a))}catch(e){}};
+function addHist(text,format){const a=loadH();a.push({id:Date.now()+"-"+Math.random().toString(36).slice(2,8),text,format,time:new Date().toLocaleString("en-GB",{dateStyle:"medium",timeStyle:"short"})});saveH(a.slice(-50))}
+function renderHist(){const a=loadH().reverse(),box=$("hl");box.textContent="";
+  if(!a.length){box.innerHTML='<p class="msg">No scans yet. Scans appear here and stay on this device only.</p>';return}
+  a.forEach(it=>{const d=document.createElement("div");d.className="item";
+    const t=document.createElement("div");t.textContent=it.text;const s=document.createElement("small");s.textContent=it.format+" · "+it.time;
+    const r=document.createElement("div");r.className="row";r.style.marginTop="8px";
+    const c=document.createElement("button");c.className="btn";c.textContent="Copy";c.onclick=()=>copy(it.text);
+    const x=document.createElement("button");x.className="btn";x.textContent="Delete";x.onclick=()=>{saveH(loadH().filter(i=>i.id!==it.id));renderHist()};
+    r.append(c,x);d.append(t,s,r);box.append(d)})}
+$("clr").onclick=()=>{if(confirm("Clear all history?")){saveH([]);renderHist()}};
+function copy(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).catch(()=>{const a=document.createElement("textarea");a.value=t;document.body.append(a);a.select();try{document.execCommand("copy")}catch(e){}a.remove()})}
+
+/* ---------- scanner (browser's built-in BarcodeDetector) ---------- */
+let det=null,stream=null,timer=null,locked=false,last="";
+const vid=$("vid");
+async function getDet(){
+  if(det)return det;if(!("BarcodeDetector"in window))return null;
+  let f;try{f=await BarcodeDetector.getSupportedFormats()}catch(e){}
+  det=f&&f.length?new BarcodeDetector({formats:f}):new BarcodeDetector();return det}
+async function startCam(){
+  if(stream||locked)return;const d=await getDet();
+  if(!d){$("smsg").textContent="This browser has no built-in code reader (e.g. Firefox). Use Chrome, Edge or Safari to scan. Creating codes and the history work everywhere.";return}
+  try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920}},audio:false});
+    vid.srcObject=stream;await vid.play();$("smsg").textContent="Point the camera at a QR code or barcode.";
+    const tr=stream.getVideoTracks()[0],cp=tr.getCapabilities?tr.getCapabilities():{};$("fl").hidden=!cp.torch;
+    loop()}
+  catch(e){$("smsg").textContent="No access to the camera. Allow it in your browser, or choose an image."}}
+function stopCam(){clearTimeout(timer);if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;vid.srcObject=null}
+async function loop(){
+  if(!stream||locked)return;
+  try{const r=await det.detect(vid);if(r.length){found(r[0].rawValue,r[0].format);return}}catch(e){}
+  timer=setTimeout(loop,120)}
+let torch=false;$("fl").onclick=()=>{torch=!torch;stream.getVideoTracks()[0].applyConstraints({advanced:[{torch}]}).catch(()=>{})};
+$("gal").onclick=()=>$("file").click();
+$("file").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;
+  const d=await getDet();if(!d){$("smsg").textContent="This browser cannot decode images. Use Chrome, Edge or Safari.";return}
+  try{const bmp=await createImageBitmap(f),r=await d.detect(bmp);if(r.length)found(r[0].rawValue,r[0].format);else $("smsg").textContent="No code found in this image."}
+  catch(err){$("smsg").textContent="This image could not be read."}};
+
+function classify(t){
+  if(/^WIFI:/i.test(t)){const g=k=>{const m=t.match(new RegExp("(?:^WIFI:|;)"+k+":((?:\\\\.|[^;])*)","i"));return m?m[1].replace(/\\(.)/g,"$1"):""};
+    return{type:"WiFi",show:"Network: "+g("S")+"\nPassword: "+(g("P")||"–")+"\nSecurity: "+(g("T")||"–")}}
+  if(/^https?:\/\//i.test(t))return{type:"Link",href:t};
+  if(/^tel:/i.test(t))return{type:"Phone",href:t};
+  if(/^mailto:/i.test(t))return{type:"Email",href:t};
+  if(/^smsto?:/i.test(t)){const m=t.replace(/^smsto?:/i,"").split(":");return{type:"SMS",href:"sms:"+m[0]+(m[1]?"?body="+encodeURIComponent(m.slice(1).join(":")):"")}}
+  if(/^geo:/i.test(t))return{type:"Location",href:t};
+  if(/^[\w.+-]+\.[a-z]{2,}(\/\S*)?$/i.test(t)&&!/\s/.test(t))return{type:"Link",href:"https://"+t};
+  return{type:"Text"}}
+function found(text,format){
+  locked=true;stopCam();if(navigator.vibrate)navigator.vibrate(100);last=text;addHist(text,format);
+  const c=classify(text);$("rtype").textContent=c.type+" · "+format;$("rtext").textContent=c.show||text;
+  const o=$("op");o.hidden=!c.href;if(c.href)o.href=c.href;$("res").hidden=false;$("smsg").textContent=""}
+$("again").onclick=()=>{locked=false;$("res").hidden=true;startCam()};
+$("cp").onclick=()=>{copy(last);$("cp").textContent="Copied";setTimeout(()=>$("cp").textContent="Copy",1200)};
+$("sh").onclick=()=>{if(navigator.share)navigator.share({text:last}).catch(()=>{});else copy(last)};
+
+/* ---------- generator ---------- */
+const GT={Text:["Text",""],URL:["Web address","https://"],Phone:["Phone number",""],Email:["Email address",""],SMS:["Phone number",""]};
+$("gt").onchange=()=>{const t=$("gt").value,w=t==="WiFi";$("g1").hidden=w;$("g2").hidden=!w;if(!w){$("gl").textContent=GT[t][0];$("gi").value=GT[t][1]}};
+const esc=s=>s.replace(/([\\;,:"])/g,"\\$1");
+$("mk").onclick=()=>{
+  const t=$("gt").value,v=$("gi").value.trim();let s;
+  if(t==="WiFi"){const n=$("ws").value;if(!n){$("gmsg").textContent="Enter a network name.";return}
+    s="WIFI:T:"+$("wt").value+";S:"+esc(n)+";"+($("wt").value==="nopass"?"":"P:"+esc($("wp").value)+";")+";"}
+  else{if(!v||v==="https://"){$("gmsg").textContent="Enter something first.";return}
+    s=t==="Phone"?"tel:"+v:t==="Email"?"mailto:"+v:t==="SMS"?"smsto:"+v:v}
+  const ok=drawQR($("qr"),s);$("qr").hidden=!ok;$("gact").hidden=!ok;
+  $("gmsg").textContent=ok?"":"This is too long for one QR code (about 210 characters maximum)."};
+$("dl").onclick=()=>{const a=document.createElement("a");a.href=$("qr").toDataURL("image/png");a.download="qr-code.png";a.click()};
+
+startCam();
+if("serviceWorker"in navigator)addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+</script>
+</body>
+</html>
