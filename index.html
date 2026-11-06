@@ -48,7 +48,7 @@ video{width:100%;height:100%;object-fit:cover}
   <p class="msg" id="smsg">Point the camera at a QR code or barcode.</p>
   <div class="res" id="res" hidden>
     <small id="rtype"></small><pre id="rtext"></pre>
-    <div class="row"><button class="btn" id="cp">Copy</button><button class="btn" id="sh">Share</button><a class="btn" id="op" target="_blank" rel="noopener" hidden style="text-decoration:none">Open</a><button class="btn p" id="again">Scan again</button></div>
+    <div class="row"><button class="btn" id="cp">Copy</button><button class="btn" id="sh">Share</button><a class="btn" id="se" target="_blank" rel="noopener" style="text-decoration:none">Search</a><a class="btn" id="op" target="_blank" rel="noopener" hidden style="text-decoration:none">Open</a><button class="btn p" id="again">Scan again</button></div>
   </div>
 </section>
 <section id="v-gen" hidden>
@@ -126,6 +126,8 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   if(b.dataset.v==="his")renderHist();
 });
 
+const searchUrl=t=>"https://duckduckgo.com/?kp=-2&q="+encodeURIComponent(t.slice(0,500));
+
 /* ---------- history ---------- */
 const HK="qr-history";
 const loadH=()=>{try{return JSON.parse(localStorage.getItem(HK)||"[]")}catch(e){return[]}};
@@ -137,8 +139,9 @@ function renderHist(){const a=loadH().reverse(),box=$("hl");box.textContent="";
     const t=document.createElement("div");t.textContent=it.text;const s=document.createElement("small");s.textContent=it.format+" · "+it.time;
     const r=document.createElement("div");r.className="row";r.style.marginTop="8px";
     const c=document.createElement("button");c.className="btn";c.textContent="Copy";c.onclick=()=>copy(it.text);
+    const q=document.createElement("a");q.className="btn";q.textContent="Search";q.target="_blank";q.rel="noopener";q.style.textDecoration="none";q.href=searchUrl(it.text);q.hidden=/^WIFI:/i.test(it.text);
     const x=document.createElement("button");x.className="btn";x.textContent="Delete";x.onclick=()=>{saveH(loadH().filter(i=>i.id!==it.id));renderHist()};
-    r.append(c,x);d.append(t,s,r);box.append(d)})}
+    r.append(c,q,x);d.append(t,s,r);box.append(d)})}
 $("clr").onclick=()=>{if(confirm("Clear all history?")){saveH([]);renderHist()}};
 function copy(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).catch(()=>{const a=document.createElement("textarea");a.value=t;document.body.append(a);a.select();try{document.execCommand("copy")}catch(e){}a.remove()})}
 
@@ -182,7 +185,7 @@ function classify(t){
 function found(text,format){
   locked=true;stopCam();if(navigator.vibrate)navigator.vibrate(100);last=text;addHist(text,format);
   const c=classify(text);$("rtype").textContent=c.type+" · "+format;$("rtext").textContent=c.show||text;
-  const o=$("op");o.hidden=!c.href;if(c.href)o.href=c.href;$("res").hidden=false;$("smsg").textContent=""}
+  const o=$("op");o.hidden=!c.href;if(c.href)o.href=c.href;const se=$("se");se.hidden=c.type==="WiFi";se.href=searchUrl(text);$("res").hidden=false;$("smsg").textContent=""}
 $("again").onclick=()=>{locked=false;$("res").hidden=true;startCam()};
 $("cp").onclick=()=>{copy(last);$("cp").textContent="Copied";setTimeout(()=>$("cp").textContent="Copy",1200)};
 $("sh").onclick=()=>{if(navigator.share)navigator.share({text:last}).catch(()=>{});else copy(last)};
