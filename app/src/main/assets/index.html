@@ -11,7 +11,12 @@
 <style>
 :root{--bg:#f4f5f1;--fg:#16201c;--mu:#66726c;--card:#fff;--ln:#d9ddd6;--ac:#2f5bea;--on:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121715;--fg:#e8ece9;--mu:#8e9a94;--card:#1b221f;--ln:#2d3732;--ac:#7c9bff;--on:#0c1220}}
-:root[data-theme="dark"]{--bg:#121715;--fg:#e8ece9;--mu:#8e9a94;--card:#1b221f;--ln:#2d3732;--ac:#7c9bff;--on:#0c1220}
+:root[data-theme="light"]{color-scheme:light;--bg:#f4f5f1;--fg:#16201c;--mu:#66726c;--card:#fff;--ln:#d9ddd6;--ac:#2f5bea;--on:#fff}
+:root[data-theme="dark"]{color-scheme:dark}
+.scan-head{margin:0 0 14px}
+.cam[hidden]{display:none!important}
+
+:root[data-theme="dark"]{color-scheme:dark;--bg:#121715;--fg:#e8ece9;--mu:#8e9a94;--card:#1b221f;--ln:#2d3732;--ac:#7c9bff;--on:#0c1220}
 *{box-sizing:border-box}html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
 main{flex:1;overflow:auto;padding:16px;max-width:560px;width:100%;margin:0 auto}
@@ -42,7 +47,8 @@ video{width:100%;height:100%;object-fit:cover}
 <body>
 <main>
 <section id="v-scan">
-  <div class="cam"><video id="vid" playsinline muted></video><div class="frame"></div>
+  <div class="h scan-head"><h2 style="margin:0">QR &amp; Barcode</h2><button class="btn" id="theme" type="button" aria-label="Switch to dark mode">🌙 Dark</button></div>
+  <div class="cam" id="cam"><video id="vid" playsinline muted></video><div class="frame"></div>
     <div class="tools"><button class="btn" id="gal">Image</button><button class="btn" id="fl" hidden>Flashlight</button></div></div>
   <input type="file" id="file" accept="image/*" hidden>
   <p class="msg" id="smsg">Point the camera at a QR code or barcode.</p>
@@ -70,6 +76,19 @@ video{width:100%;height:100%;object-fit:cover}
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
+
+const THEME_KEY="qr-theme";
+function applyTheme(theme){
+  document.documentElement.dataset.theme=theme;
+  const dark=theme==="dark";
+  $("theme").textContent=dark?"☀️ Light":"🌙 Dark";
+  $("theme").setAttribute("aria-label",dark?"Switch to light mode":"Switch to dark mode");
+  const meta=document.querySelector('meta[name="theme-color"]');
+  if(meta)meta.content=dark?"#121715":"#f4f5f1";
+}
+const savedTheme=localStorage.getItem(THEME_KEY);
+applyTheme(savedTheme==="dark"||savedTheme==="light"?savedTheme:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"));
+$("theme").onclick=()=>{const next=document.documentElement.dataset.theme==="dark"?"light":"dark";localStorage.setItem(THEME_KEY,next);applyTheme(next)};
 
 /* ---------- QR encoder (own implementation: byte mode, ECC level M, versions 1-10) ---------- */
 const EXP=new Uint8Array(512),LOG=new Uint8Array(256);
@@ -122,7 +141,7 @@ function drawQR(canvas,text){
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.setAttribute("aria-selected",x===b));
   ["scan","gen","his"].forEach(v=>$("v-"+v).hidden=v!==b.dataset.v);
-  if(b.dataset.v==="scan")startCam();else stopCam();
+  if(b.dataset.v==="scan")startCam();else{stopCam();$("cam").hidden=true;}
   if(b.dataset.v==="his")renderHist();
 });
 
@@ -154,13 +173,14 @@ async function getDet(){
   det=f&&f.length?new BarcodeDetector({formats:f}):new BarcodeDetector();return det}
 async function startCam(){
   if(stream||locked)return;const d=await getDet();
-  if(!d){$("smsg").textContent="This browser has no built-in code reader (e.g. Firefox). Use Chrome, Edge or Safari to scan. Creating codes and the history work everywhere.";return}
+  if(!d){$("cam").hidden=true;$("smsg").textContent="This browser has no built-in code reader (e.g. Firefox). Use Chrome, Edge or Safari to scan. Creating codes and the history work everywhere.";return}
+  $("cam").hidden=false;
   try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920}},audio:false});
     vid.srcObject=stream;await vid.play();$("smsg").textContent="Point the camera at a QR code or barcode.";
     const tr=stream.getVideoTracks()[0],cp=tr.getCapabilities?tr.getCapabilities():{};$("fl").hidden=!cp.torch;
     loop()}
-  catch(e){$("smsg").textContent="No access to the camera. Allow it in your browser, or choose an image."}}
-function stopCam(){clearTimeout(timer);if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;vid.srcObject=null}
+  catch(e){$("cam").hidden=true;$("smsg").textContent="No access to the camera. Allow it in your browser, or choose an image."}}
+function stopCam(){clearTimeout(timer);if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;vid.pause();vid.srcObject=null;$("cam").hidden=true;$("fl").hidden=true}
 async function loop(){
   if(!stream||locked)return;
   try{const r=await det.detect(vid);if(r.length){found(r[0].rawValue,r[0].format);return}}catch(e){}
@@ -186,7 +206,7 @@ function found(text,format){
   locked=true;stopCam();if(navigator.vibrate)navigator.vibrate(100);last=text;addHist(text,format);
   const c=classify(text);$("rtype").textContent=c.type+" · "+format;$("rtext").textContent=c.show||text;
   const o=$("op");o.hidden=!c.href;if(c.href)o.href=c.href;const se=$("se");se.hidden=c.type==="WiFi";se.href=searchUrl(text);$("res").hidden=false;$("smsg").textContent=""}
-$("again").onclick=()=>{locked=false;$("res").hidden=true;startCam()};
+$("again").onclick=()=>{locked=false;$("res").hidden=true;$("cam").hidden=false;startCam()};
 $("cp").onclick=()=>{copy(last);$("cp").textContent="Copied";setTimeout(()=>$("cp").textContent="Copy",1200)};
 $("sh").onclick=()=>{if(navigator.share)navigator.share({text:last}).catch(()=>{});else copy(last)};
 
